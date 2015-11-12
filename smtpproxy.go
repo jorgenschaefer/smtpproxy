@@ -71,7 +71,7 @@ func handleConnection(netConn net.Conn) {
 	c := smtpd.NewConn(netConn)
 	err = greet(c, hostname)
 	if err != nil {
-		log.Print(err)
+		log.Print("Error: ", err.Error())
 		if errors.DoFlytrap(err) {
 			flyTrap(c)
 		}
