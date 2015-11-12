@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	"log"
 	"net"
 	"net/smtp"
 	"os"
@@ -26,7 +25,8 @@ func main() {
 	validRecipient = regexp.MustCompile(os.Getenv("VALID_RECIPIENTS"))
 	relayHost = os.Getenv("RELAY_HOST")
 	if relayHost == "" {
-		log.Fatal("No RELAY_HOST specified")
+		fmt.Println("No RELAY_HOST specified")
+		os.Exit(1)
 	}
 	overrideRecipient = os.Getenv("OVERRIDE_RECIPIENT")
 
@@ -37,14 +37,15 @@ func main() {
 
 	ln, err := net.Listen("tcp", address)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
-	log.Printf("SMTP proxy started; address=\"%s\"", ln.Addr())
+	fmt.Printf("SMTP proxy started; address=\"%s\"\n", ln.Addr())
 
 	for {
 		c, err := ln.Accept()
 		if err != nil {
-			log.Print(err)
+			fmt.Println(err)
 			continue
 		}
 		go handleConnection(c)
@@ -66,12 +67,12 @@ func handleConnection(netConn net.Conn) {
 		panic(err)
 	}
 	addr := netConn.RemoteAddr()
-	log.Printf("New connection; client=\"%s\"", addr)
-	defer log.Printf("Client disconnected; client=\"%s\"", addr)
+	fmt.Printf("New connection; client=\"%s\"\n", addr)
+	defer fmt.Printf("Client disconnected; client=\"%s\"\n", addr)
 	c := smtpd.NewConn(netConn)
 	err = greet(c, hostname)
 	if err != nil {
-		log.Print("Error: ", err.Error())
+		fmt.Println("Error: ", err.Error())
 		if errors.DoFlytrap(err) {
 			flyTrap(c)
 		}
@@ -83,13 +84,13 @@ func handleConnection(netConn net.Conn) {
 	for {
 		command, args, err := c.ReadCommand("30s")
 		if err != nil {
-			log.Printf("Error reading from client; client=\"%s\" error=\"%s\"",
+			fmt.Printf("Error reading from client; client=\"%s\" error=\"%s\"\n",
 				c, err)
 			return
 		}
 		err = handleCommand(c, srv, command, args)
 		if err != nil {
-			log.Print("Error: ", err.Error())
+			fmt.Println("Error: ", err.Error())
 			if errors.DoFlytrap(err) {
 				flyTrap(c)
 				return
@@ -207,13 +208,13 @@ func handleCommand(c *smtpd.Conn, srv *smtpState,
 			body,
 		)
 		if err != nil {
-			log.Printf("Error delivering mail; client=\"%s\" sender=\"%s\" recipients=\"%s\" error=\"%s\"",
+			fmt.Printf("Error delivering mail; client=\"%s\" sender=\"%s\" recipients=\"%s\" error=\"%s\"\n",
 				c, srv.Sender, strings.Join(srv.Recipients, ", "),
 				err)
 			c.Reply(450, "Error delivering the mail, try again later")
 			return nil
 		}
-		log.Printf("Mail sent; client=\"%s\" sender=\"%s\" recipients=\"%s\"",
+		fmt.Printf("Mail sent; client=\"%s\" sender=\"%s\" recipients=\"%s\"\n",
 			c, srv.Sender, strings.Join(srv.Recipients, ", "))
 		c.Reply(250, "Ok")
 	case "RSET":
@@ -246,7 +247,8 @@ func flyTrap(c *smtpd.Conn) {
 func tlsServerConf() *tls.Config {
 	cert, err := tls.LoadX509KeyPair(serverCertFile, serverKeyFile)
 	if err != nil {
-		log.Fatal("Error opening certificates: ", err)
+		fmt.Println("Error opening certificates: ", err)
+		os.Exit(1)
 	}
 
 	config := &tls.Config{
