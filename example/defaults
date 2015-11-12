@@ -1,0 +1,19 @@
+# A regular expression matching all e-mail addresses this proxy should
+# accept. Careful, if this is not set, all mails are relayed to the
+# relay host.
+VALID_RECIPIENTS="^test@test.tld$"
+
+# If this is set, all recipients specified by a client will be
+# replaced by this single recipient.
+OVERRIDE_RECIPIENT="othertest@test.tld"
+
+# Which address to relay mails to. This has to include the port
+# number.
+RELAY_HOST="mail.tld:25"
+
+# X.509 certificate and key for STARTTLS support
+SERVER_CERT="/etc/ssl/certs/ssl-cert-snakeoil.pem"
+SERVER_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
+
+# Which address to listen on. Defaults to :25
+LISTEN_ADDRESS=":25"

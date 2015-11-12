@@ -7,6 +7,24 @@ relays them directly to a relay host, without local storage. This is
 useful for forwarding your own e-mail addresses to gmail or similar
 services. `smtpproxy` also does some minimal spam detection.
 
+## Installation
+
+`smtpproxy` is best run from `systemd`. It uses environment variables
+for configuration. See [`example/defaults`](example/defaults) for the
+list of supported options.
+
+```
+go get github.com/jorgenschaefer/smtpproxy
+cp $GOPATH/bin/smtpproxy /usr/local/sbin/
+cp $GOPATH/src/github.com/jorgenschaefer/smtpproxy/example/smtpproxy.service \
+   /lib/systemd/system/smtpproxy.service
+cp $GOPATH/src/github.com/jorgenschaefer/smtpproxy/example/defaults \
+   /etc/default/smtpproxy
+systemctl daemon-reload
+$EDITOR /etc/default/smtpproxy
+systemctl start smtpproxy.service
+```
+
 ## Features
 
 - No local spool or storage at all. The client only receives a success
