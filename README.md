@@ -1,5 +1,7 @@
 # smtpproxy, a Simple Mail Proxy
 
+[![Build Status](https://api.travis-ci.org/jorgenschaefer/smtpproxy.png?branch=master)](https://travis-ci.org/jorgenschaefer/smtpproxy)
+
 ## Overview
 
 `smtpproxy` is a small Go program that accepts messages on port 25 and
