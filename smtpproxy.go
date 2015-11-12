@@ -72,7 +72,7 @@ func handleConnection(netConn net.Conn) {
 	c := smtpd.NewConn(netConn)
 	err = greet(c, hostname)
 	if err != nil {
-		fmt.Println("Error: ", err.Error())
+		fmt.Println("Error:", err.Error())
 		if errors.DoFlytrap(err) {
 			flyTrap(c)
 		}
@@ -90,7 +90,7 @@ func handleConnection(netConn net.Conn) {
 		}
 		err = handleCommand(c, srv, command, args)
 		if err != nil {
-			fmt.Println("Error: ", err.Error())
+			fmt.Println("Error:", err.Error())
 			if errors.DoFlytrap(err) {
 				flyTrap(c)
 				return
