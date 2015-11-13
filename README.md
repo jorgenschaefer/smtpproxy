@@ -19,12 +19,13 @@ list of supported options.
 go get github.com/jorgenschaefer/smtpproxy
 cp $GOPATH/bin/smtpproxy /usr/local/sbin/
 cp $GOPATH/src/github.com/jorgenschaefer/smtpproxy/example/smtpproxy.service \
-   /etc/systemd/system/smtpproxy.service
+   $GOPATH/src/github.com/jorgenschaefer/smtpproxy/example/smtpproxy.socket \
+   /etc/systemd/system/
 cp $GOPATH/src/github.com/jorgenschaefer/smtpproxy/example/defaults \
    /etc/default/smtpproxy
 systemctl daemon-reload
 $EDITOR /etc/default/smtpproxy
-systemctl start smtpproxy.service
+systemctl start smtpproxy.socket
 ```
 
 ## Features

@@ -1,0 +1,8 @@
+[Unit]
+Description=SMTP Proxy
+
+[Socket]
+ListenStream=25
+
+[Install]
+WantedBy=sockets.target

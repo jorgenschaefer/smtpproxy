@@ -7,40 +7,38 @@ import (
 	"net/smtp"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jorgenschaefer/smtpproxy/errors"
 	"github.com/jorgenschaefer/smtpproxy/smtpd"
 )
 
-var serverCertFile string
-var serverKeyFile string
-var validRecipient *regexp.Regexp
+const SD_LISTEN_FDS_START int = 3
+
 var relayHost string
+var validRecipient *regexp.Regexp
 var overrideRecipient string
+var tlsConfig *tls.Config
 
 func main() {
-	serverCertFile = os.Getenv("SERVER_CERT")
-	serverKeyFile = os.Getenv("SERVER_KEY")
-	validRecipient = regexp.MustCompile(os.Getenv("VALID_RECIPIENTS"))
 	relayHost = os.Getenv("RELAY_HOST")
 	if relayHost == "" {
 		fmt.Println("No RELAY_HOST specified")
 		os.Exit(1)
 	}
+	validRecipient = regexp.MustCompile(os.Getenv("VALID_RECIPIENTS"))
 	overrideRecipient = os.Getenv("OVERRIDE_RECIPIENT")
 
-	address := os.Getenv("LISTEN_ADDRESS")
-	if address == "" {
-		address = ":25"
-	}
-
-	ln, err := net.Listen("tcp", address)
+	ln, err := Listen()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+	tlsConfig = LoadTLSConfig()
+
 	fmt.Printf("SMTP proxy started; address=\"%s\"\n", ln.Addr())
+	defer fmt.Printf("SMTP proxy stopped; address=\"%s\"\n", ln.Addr())
 
 	for {
 		c, err := ln.Accept()
@@ -49,6 +47,43 @@ func main() {
 			continue
 		}
 		go handleConnection(c)
+	}
+}
+
+func Listen() (net.Listener, error) {
+	listenPID := os.Getenv("LISTEN_PID")
+
+	if listenPID == "" {
+		address := os.Getenv("LISTEN_ADDRESS")
+
+		if address == "" {
+			address = ":25"
+		}
+		return net.Listen("tcp", address)
+	} else {
+		listenFDs := os.Getenv("LISTEN_FDS")
+
+		pid, err := strconv.Atoi(listenPID)
+		if err != nil {
+			fmt.Println("Bad LISTEN_PID:", err)
+			os.Exit(1)
+		}
+		if os.Getpid() != pid {
+			fmt.Println("Bad LISTEN_PID, expected", os.Getpid(),
+				"got", pid)
+			os.Exit(1)
+		}
+		fdcount, err := strconv.Atoi(listenFDs)
+		if err != nil {
+			fmt.Println("Bad LISTEN_FDS:", err)
+			os.Exit(1)
+		}
+		if fdcount != 1 {
+			fmt.Println("Bad LISTEN_FDS, expected 1, got", fdcount)
+			os.Exit(1)
+		}
+		f := os.NewFile(uintptr(SD_LISTEN_FDS_START), "LISTEN_FD")
+		return net.FileListener(f)
 	}
 }
 
@@ -142,14 +177,14 @@ func handleCommand(c *smtpd.Conn, srv *smtpState,
 	case "HELO":
 		c.Reply(250, srv.Hostname)
 	case "EHLO":
-		if serverCertFile == "" {
+		if tlsConfig == nil {
 			c.Reply(250, srv.Hostname, "8BITMIME")
 		} else {
 			c.Reply(250, srv.Hostname, "8BITMIME", "STARTTLS")
 		}
 	case "STARTTLS":
 		c.Reply(220, "Ready to start TLS")
-		c.StartTLS(tlsServerConf())
+		c.StartTLS(tlsConfig)
 		srv.IsTLS = true
 	case "MAIL":
 		if srv.Sender != "" {
@@ -244,7 +279,12 @@ func flyTrap(c *smtpd.Conn) {
 	}
 }
 
-func tlsServerConf() *tls.Config {
+func LoadTLSConfig() *tls.Config {
+	serverCertFile := os.Getenv("SERVER_CERT")
+	serverKeyFile := os.Getenv("SERVER_KEY")
+	if serverCertFile == "" {
+		return nil
+	}
 	cert, err := tls.LoadX509KeyPair(serverCertFile, serverKeyFile)
 	if err != nil {
 		fmt.Println("Error opening certificates: ", err)

@@ -1,10 +1,7 @@
 [Unit]
 Description=SMTP Proxy
-After=network.target
 
 [Service]
 EnvironmentFile=-/etc/default/smtpproxy
 ExecStart=/usr/local/sbin/smtpproxy
-
-[Install]
-WantedBy=multi-user.target
+User=nobody
