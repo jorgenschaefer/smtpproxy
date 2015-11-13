@@ -16,7 +16,7 @@ func TestError(t *testing.T) {
 
 func TestFlytrapError(t *testing.T) {
 	var err error
-	err = FlytrapError("the message", map[string]string{})
+	err = Error("the message", map[string]string{}).(CommandError).Flytrap()
 	if !DoFlytrap(err) {
 		t.Error("Expected to DoFlytrap, but did not")
 	}

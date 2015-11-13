@@ -15,6 +15,11 @@ func (c CommandError) Error() string {
 	return c.message
 }
 
+func (c CommandError) Flytrap() CommandError {
+	c.doFlytrap = true
+	return c
+}
+
 func DoFlytrap(err error) bool {
 	if cerr, ok := err.(CommandError); ok {
 		return cerr.doFlytrap
@@ -45,11 +50,7 @@ func Error(message string, err_args map[string]string) error {
 	}
 }
 
-func FlytrapError(message string, err_args map[string]string) error {
-	err := Error(message, err_args)
-	if cerr, ok := err.(CommandError); ok {
-		cerr.doFlytrap = true
-		return cerr
-	}
-	return err
+func SetFlytrap(err error) {
+	cmdError := err.(CommandError)
+	cmdError.doFlytrap = true
 }
