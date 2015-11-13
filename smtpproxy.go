@@ -35,7 +35,11 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	tlsConfig = LoadTLSConfig()
+	tlsConfig, err = LoadTLSConfig()
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 
 	fmt.Printf("SMTP proxy started; address=\"%s\"\n", ln.Addr())
 	defer fmt.Printf("SMTP proxy stopped; address=\"%s\"\n", ln.Addr())
@@ -65,22 +69,23 @@ func Listen() (net.Listener, error) {
 
 		pid, err := strconv.Atoi(listenPID)
 		if err != nil {
-			fmt.Println("Bad LISTEN_PID:", err)
-			os.Exit(1)
+			err = fmt.Errorf("Bad LISTEN_PID: %v", err)
+			return nil, err
 		}
 		if os.Getpid() != pid {
-			fmt.Println("Bad LISTEN_PID, expected", os.Getpid(),
-				"got", pid)
-			os.Exit(1)
+			err = fmt.Errorf("Bad LISTEN_PID, expected %v got %v",
+				os.Getpid(), pid)
+			return nil, err
 		}
 		fdcount, err := strconv.Atoi(listenFDs)
 		if err != nil {
-			fmt.Println("Bad LISTEN_FDS:", err)
-			os.Exit(1)
+			err = fmt.Errorf("Bad LISTEN_FDS: %v", err)
+			return nil, err
 		}
 		if fdcount != 1 {
-			fmt.Println("Bad LISTEN_FDS, expected 1, got", fdcount)
-			os.Exit(1)
+			err = fmt.Errorf("Bad LISTEN_FDS, expected 1, got %v",
+				fdcount)
+			return nil, err
 		}
 		f := os.NewFile(uintptr(SD_LISTEN_FDS_START), "LISTEN_FD")
 		return net.FileListener(f)
@@ -279,22 +284,22 @@ func flyTrap(c *smtpd.Conn) {
 	}
 }
 
-func LoadTLSConfig() *tls.Config {
+func LoadTLSConfig() (*tls.Config, error) {
 	serverCertFile := os.Getenv("SERVER_CERT")
 	serverKeyFile := os.Getenv("SERVER_KEY")
 	if serverCertFile == "" {
-		return nil
+		return nil, nil
 	}
 	cert, err := tls.LoadX509KeyPair(serverCertFile, serverKeyFile)
 	if err != nil {
-		fmt.Println("Error opening certificates: ", err)
-		os.Exit(1)
+		err = fmt.Errorf("Error opening certificates: %v", err)
+		return nil, err
 	}
 
 	config := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 	}
-	return config
+	return config, nil
 }
 
 var mailFrom = regexp.MustCompile("(?i)from:<(.+)>")
