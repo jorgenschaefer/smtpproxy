@@ -29,9 +29,9 @@ type connState struct {
 }
 
 type commandArgs struct {
-	command string
-	args    string
-	errArgs map[string]string
+	Command string
+	Args    string
+	ErrArgs map[string]string
 }
 type handlerFunction func(*smtpd.Conn, *connState, *commandArgs) error
 
@@ -125,20 +125,22 @@ func handleConnection(netConn net.Conn) {
 	if err != nil {
 		panic(err)
 	}
+	srv := &connState{
+		Hostname: hostname,
+	}
+
 	addr := netConn.RemoteAddr()
 	fmt.Printf("New connection; client=\"%s\"\n", addr)
 	defer fmt.Printf("Client disconnected; client=\"%s\"\n", addr)
+
 	c := smtpd.NewConn(netConn)
-	err = greet(c, hostname)
+	err = handleNewClient(c, srv, nil)
 	if err != nil {
 		fmt.Println("Error:", err.Error())
 		if errors.DoFlytrap(err) {
 			flyTrap(c)
 		}
 		return
-	}
-	srv := &connState{
-		Hostname: hostname,
 	}
 	for {
 		command, args, err := c.ReadCommand("30s")
@@ -161,11 +163,39 @@ func handleConnection(netConn net.Conn) {
 	}
 }
 
-func greet(c *smtpd.Conn, hostname string) error {
+func handleCommand(c *smtpd.Conn, srv *connState,
+	command string, args string) error {
+
+	cmd := &commandArgs{
+		Command: command,
+		Args:    args,
+		ErrArgs: map[string]string{
+			"client":  c.String(),
+			"command": command,
+		},
+	}
+	if c.IsTLS() {
+		cmd.ErrArgs["protocol"] = "STARTTLS"
+	} else {
+		cmd.ErrArgs["protocol"] = "SMTP"
+	}
+	if args != "" {
+		cmd.ErrArgs["args"] = args
+	}
+
+	if handler, ok := commandMap[command]; ok {
+		return handler(c, srv, cmd)
+	} else {
+		return errors.Error("unknown command", cmd.ErrArgs)
+	}
+}
+
+func handleNewClient(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
 	errArgs := map[string]string{
 		"client": c.String(),
 	}
-	err := c.WriteLine(fmt.Sprintf("220-%s here, please hold", hostname))
+	err := c.WriteLine(fmt.Sprintf("220-%s here, please hold",
+		srv.Hostname))
 	if err != nil {
 		errArgs["error"] = err.Error()
 		return errors.Error("writing server greeting", errArgs)
@@ -179,33 +209,6 @@ func greet(c *smtpd.Conn, hostname string) error {
 		return errors.Error("writing server greeting", errArgs)
 	}
 	return nil
-}
-
-func handleCommand(c *smtpd.Conn, srv *connState,
-	command string, args string) error {
-
-	cmd := &commandArgs{
-		command: command,
-		args:    args,
-		errArgs: map[string]string{
-			"client":  c.String(),
-			"command": command,
-		},
-	}
-	if c.IsTLS() {
-		cmd.errArgs["protocol"] = "STARTTLS"
-	} else {
-		cmd.errArgs["protocol"] = "SMTP"
-	}
-	if args != "" {
-		cmd.errArgs["args"] = args
-	}
-
-	if handler, ok := commandMap[command]; ok {
-		return handler(c, srv, cmd)
-	} else {
-		return errors.Error("unknown command", cmd.errArgs)
-	}
 }
 
 func handleHELO(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
@@ -231,12 +234,12 @@ func handleSTARTTLS(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
 func handleMAIL(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
 	if srv.Sender != "" {
 		c.Reply(503, "Duplicate MAIL command")
-		return errors.Error("duplicate MAIL command", cmd.errArgs)
+		return errors.Error("duplicate MAIL command", cmd.ErrArgs)
 	}
-	sender, err := extractSender(cmd.args)
+	sender, err := extractSender(cmd.Args)
 	if err != nil {
 		c.Reply(501, "Missing sender")
-		return errors.FlytrapError("missing sender", cmd.errArgs)
+		return errors.FlytrapError("missing sender", cmd.ErrArgs)
 	}
 	srv.Sender = sender
 	c.Reply(250, "Ok")
@@ -246,17 +249,17 @@ func handleMAIL(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
 func handleRCPT(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
 	if srv.Sender == "" {
 		c.Reply(501, "No sender specified")
-		return errors.Error("RCPT without MAIL", cmd.errArgs)
+		return errors.Error("RCPT without MAIL", cmd.ErrArgs)
 	}
-	recipient, err := extractRecipient(cmd.args)
+	recipient, err := extractRecipient(cmd.Args)
 	if err != nil {
 		c.Reply(501, "Missing recipient")
-		cmd.errArgs["error"] = err.Error()
-		return errors.Error("missing recipient", cmd.errArgs)
+		cmd.ErrArgs["error"] = err.Error()
+		return errors.Error("missing recipient", cmd.ErrArgs)
 	}
 	if !validRecipient.MatchString(recipient) {
 		c.Reply(550, "Relay access denied")
-		return errors.Error("relay access denied", cmd.errArgs)
+		return errors.Error("relay access denied", cmd.ErrArgs)
 	}
 	srv.Recipients = append(srv.Recipients, recipient)
 	c.Reply(250, "Ok")
@@ -266,18 +269,18 @@ func handleRCPT(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
 func handleDATA(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
 	if srv.Sender == "" {
 		c.Reply(503, "No sender specified")
-		return errors.Error("DATA without MAIL", cmd.errArgs)
+		return errors.Error("DATA without MAIL", cmd.ErrArgs)
 	}
 	if len(srv.Recipients) == 0 {
 		c.Reply(503, "No recipients specified")
-		return errors.Error("DATA without RCPT", cmd.errArgs)
+		return errors.Error("DATA without RCPT", cmd.ErrArgs)
 	}
 	c.Reply(354, "End data with <CRLF>.<CRLF>")
 	body, err := c.ReadDotBytes()
 	if err != nil {
 		c.Reply(501, "You confuse me")
-		cmd.errArgs["error"] = err.Error()
-		return errors.Error("error reading mail data", cmd.errArgs)
+		cmd.ErrArgs["error"] = err.Error()
+		return errors.Error("error reading mail data", cmd.ErrArgs)
 	}
 	recipients := srv.Recipients
 	if overrideRecipient != "" {
