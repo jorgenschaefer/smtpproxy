@@ -73,6 +73,10 @@ func (c *Conn) Close() error {
 	return c.netConn.Close()
 }
 
+func (c *Conn) IsTLS() bool {
+	return c.isTLS
+}
+
 func (c *Conn) StartTLS(tlsConfig *tls.Config) {
 	conn := tls.Server(c.netConn, tlsConfig)
 	br := bufio.NewReader(conn)

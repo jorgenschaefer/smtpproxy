@@ -21,6 +21,33 @@ var validRecipient *regexp.Regexp
 var overrideRecipient string
 var tlsConfig *tls.Config
 
+type connState struct {
+	Hostname     string
+	Sender       string
+	Recipients   []string
+	QuitReceived bool
+}
+
+type commandArgs struct {
+	command string
+	args    string
+	errArgs map[string]string
+}
+type handlerFunction func(*smtpd.Conn, *connState, *commandArgs) error
+
+var commandMap map[string]handlerFunction = map[string]handlerFunction{
+	"HELO":     handleHELO,
+	"EHLO":     handleEHLO,
+	"STARTTLS": handleSTARTTLS,
+	"MAIL":     handleMAIL,
+	"RCPT":     handleRCPT,
+	"DATA":     handleDATA,
+	"RSET":     handleRSET,
+	"NOOP":     handleNOOP,
+	"VRFY":     handleVRFY,
+	"QUIT":     handleQUIT,
+}
+
 func main() {
 	relayHost = os.Getenv("RELAY_HOST")
 	if relayHost == "" {
@@ -92,14 +119,6 @@ func Listen() (net.Listener, error) {
 	}
 }
 
-type smtpState struct {
-	Hostname     string
-	Sender       string
-	Recipients   []string
-	IsTLS        bool
-	QuitReceived bool
-}
-
 func handleConnection(netConn net.Conn) {
 	defer netConn.Close()
 	hostname, err := os.Hostname()
@@ -118,7 +137,7 @@ func handleConnection(netConn net.Conn) {
 		}
 		return
 	}
-	srv := &smtpState{
+	srv := &connState{
 		Hostname: hostname,
 	}
 	for {
@@ -143,135 +162,167 @@ func handleConnection(netConn net.Conn) {
 }
 
 func greet(c *smtpd.Conn, hostname string) error {
-	err_args := map[string]string{
+	errArgs := map[string]string{
 		"client": c.String(),
 	}
 	err := c.WriteLine(fmt.Sprintf("220-%s here, please hold", hostname))
 	if err != nil {
-		err_args["error"] = err.Error()
-		return errors.Error("writing server greeting", err_args)
+		errArgs["error"] = err.Error()
+		return errors.Error("writing server greeting", errArgs)
 	}
 	_, _, err = c.ReadCommand("5s")
 	if err == nil {
-		return errors.FlytrapError("client spoke before its turn", err_args)
+		return errors.FlytrapError("client spoke before its turn", errArgs)
 	}
 	err = c.WriteLine("220 Thank you for holding, how may I help you?")
 	if err != nil {
-		return errors.Error("writing server greeting", err_args)
+		return errors.Error("writing server greeting", errArgs)
 	}
 	return nil
 }
 
-func handleCommand(c *smtpd.Conn, srv *smtpState,
+func handleCommand(c *smtpd.Conn, srv *connState,
 	command string, args string) error {
 
-	err_args := map[string]string{
-		"client":  c.String(),
-		"command": command,
+	cmd := &commandArgs{
+		command: command,
+		args:    args,
+		errArgs: map[string]string{
+			"client":  c.String(),
+			"command": command,
+		},
 	}
-	if srv.IsTLS {
-		err_args["protocol"] = "STARTTLS"
+	if c.IsTLS() {
+		cmd.errArgs["protocol"] = "STARTTLS"
 	} else {
-		err_args["protocol"] = "SMTP"
+		cmd.errArgs["protocol"] = "SMTP"
 	}
 	if args != "" {
-		err_args["args"] = args
+		cmd.errArgs["args"] = args
 	}
 
-	switch command {
-	case "HELO":
-		c.Reply(250, srv.Hostname)
-	case "EHLO":
-		if tlsConfig == nil {
-			c.Reply(250, srv.Hostname, "8BITMIME")
-		} else {
-			c.Reply(250, srv.Hostname, "8BITMIME", "STARTTLS")
-		}
-	case "STARTTLS":
-		c.Reply(220, "Ready to start TLS")
-		c.StartTLS(tlsConfig)
-		srv.IsTLS = true
-	case "MAIL":
-		if srv.Sender != "" {
-			c.Reply(503, "Duplicate MAIL command")
-			return errors.Error("duplicate MAIL command", err_args)
-		}
-		sender, err := extractSender(args)
-		if err != nil {
-			c.Reply(501, "Missing sender")
-			return errors.FlytrapError("missing sender", err_args)
-		}
-		srv.Sender = sender
-		c.Reply(250, "Ok")
-	case "RCPT":
-		if srv.Sender == "" {
-			c.Reply(501, "No sender specified")
-			return errors.Error("RCPT without MAIL", err_args)
-		}
-		recipient, err := extractRecipient(args)
-		if err != nil {
-			c.Reply(501, "Missing recipient")
-			err_args["error"] = err.Error()
-			return errors.Error("missing recipient", err_args)
-		}
-		if !validRecipient.MatchString(recipient) {
-			c.Reply(550, "Relay access denied")
-			return errors.Error("relay access denied", err_args)
-		}
-		srv.Recipients = append(srv.Recipients, recipient)
-		c.Reply(250, "Ok")
-	case "DATA":
-		if srv.Sender == "" {
-			c.Reply(503, "No sender specified")
-			return errors.Error("DATA without MAIL", err_args)
-		}
-		if len(srv.Recipients) == 0 {
-			c.Reply(503, "No recipients specified")
-			return errors.Error("DATA without RCPT", err_args)
-		}
-		c.Reply(354, "End data with <CRLF>.<CRLF>")
-		body, err := c.ReadDotBytes()
-		if err != nil {
-			c.Reply(501, "You confuse me")
-			err_args["error"] = err.Error()
-			return errors.Error("error reading mail data", err_args)
-		}
-		recipients := srv.Recipients
-		if overrideRecipient != "" {
-			recipients = []string{overrideRecipient}
-		}
-		err = smtp.SendMail(
-			relayHost,
-			nil,
-			srv.Sender,
-			recipients,
-			body,
-		)
-		if err != nil {
-			fmt.Printf("Error delivering mail; client=\"%s\" sender=\"%s\" recipients=\"%s\" error=\"%s\"\n",
-				c, srv.Sender, strings.Join(srv.Recipients, ", "),
-				err)
-			c.Reply(450, "Error delivering the mail, try again later")
-			return nil
-		}
-		fmt.Printf("Mail sent; client=\"%s\" sender=\"%s\" recipients=\"%s\"\n",
-			c, srv.Sender, strings.Join(srv.Recipients, ", "))
-		c.Reply(250, "Ok")
-	case "RSET":
-		srv.Sender = ""
-		srv.Recipients = nil
-		c.Reply(250, "Ok")
-	case "NOOP":
-		c.Reply(250, "Ok")
-	case "VRFY":
-		c.Reply(502, "Not implemented")
-	case "QUIT":
-		c.Reply(221, "Have a nice day")
-		srv.QuitReceived = true
-		return nil
-	default:
-		return errors.Error("unknown command", err_args)
+	if handler, ok := commandMap[command]; ok {
+		return handler(c, srv, cmd)
+	} else {
+		return errors.Error("unknown command", cmd.errArgs)
 	}
+}
+
+func handleHELO(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
+	c.Reply(250, srv.Hostname)
+	return nil
+}
+
+func handleEHLO(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
+	if tlsConfig == nil {
+		c.Reply(250, srv.Hostname, "8BITMIME")
+	} else {
+		c.Reply(250, srv.Hostname, "8BITMIME", "STARTTLS")
+	}
+	return nil
+}
+
+func handleSTARTTLS(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
+	c.Reply(220, "Ready to start TLS")
+	c.StartTLS(tlsConfig)
+	return nil
+}
+
+func handleMAIL(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
+	if srv.Sender != "" {
+		c.Reply(503, "Duplicate MAIL command")
+		return errors.Error("duplicate MAIL command", cmd.errArgs)
+	}
+	sender, err := extractSender(cmd.args)
+	if err != nil {
+		c.Reply(501, "Missing sender")
+		return errors.FlytrapError("missing sender", cmd.errArgs)
+	}
+	srv.Sender = sender
+	c.Reply(250, "Ok")
+	return nil
+}
+
+func handleRCPT(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
+	if srv.Sender == "" {
+		c.Reply(501, "No sender specified")
+		return errors.Error("RCPT without MAIL", cmd.errArgs)
+	}
+	recipient, err := extractRecipient(cmd.args)
+	if err != nil {
+		c.Reply(501, "Missing recipient")
+		cmd.errArgs["error"] = err.Error()
+		return errors.Error("missing recipient", cmd.errArgs)
+	}
+	if !validRecipient.MatchString(recipient) {
+		c.Reply(550, "Relay access denied")
+		return errors.Error("relay access denied", cmd.errArgs)
+	}
+	srv.Recipients = append(srv.Recipients, recipient)
+	c.Reply(250, "Ok")
+	return nil
+}
+
+func handleDATA(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
+	if srv.Sender == "" {
+		c.Reply(503, "No sender specified")
+		return errors.Error("DATA without MAIL", cmd.errArgs)
+	}
+	if len(srv.Recipients) == 0 {
+		c.Reply(503, "No recipients specified")
+		return errors.Error("DATA without RCPT", cmd.errArgs)
+	}
+	c.Reply(354, "End data with <CRLF>.<CRLF>")
+	body, err := c.ReadDotBytes()
+	if err != nil {
+		c.Reply(501, "You confuse me")
+		cmd.errArgs["error"] = err.Error()
+		return errors.Error("error reading mail data", cmd.errArgs)
+	}
+	recipients := srv.Recipients
+	if overrideRecipient != "" {
+		recipients = []string{overrideRecipient}
+	}
+	err = smtp.SendMail(
+		relayHost,
+		nil,
+		srv.Sender,
+		recipients,
+		body,
+	)
+	if err != nil {
+		fmt.Printf("Error delivering mail; client=\"%s\" sender=\"%s\" recipients=\"%s\" error=\"%s\"\n",
+			c, srv.Sender, strings.Join(srv.Recipients, ", "),
+			err)
+		c.Reply(450, "Error delivering the mail, try again later")
+		return nil
+	}
+	fmt.Printf("Mail sent; client=\"%s\" sender=\"%s\" recipients=\"%s\"\n",
+		c, srv.Sender, strings.Join(srv.Recipients, ", "))
+	c.Reply(250, "Ok")
+	return nil
+}
+
+func handleRSET(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
+	srv.Sender = ""
+	srv.Recipients = nil
+	c.Reply(250, "Ok")
+	return nil
+}
+
+func handleNOOP(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
+	c.Reply(250, "Ok")
+	return nil
+}
+
+func handleVRFY(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
+	c.Reply(502, "Not implemented")
+	return nil
+}
+
+func handleQUIT(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
+	c.Reply(221, "Have a nice day")
+	srv.QuitReceived = true
 	return nil
 }
 
