@@ -36,6 +36,7 @@ systemctl start smtpproxy.socket
   [RFC 5321](https://www.ietf.org/rfc/rfc5321.txt) section 4.5.1, with
   the exception of `VRFY`.
 - The `STARTTLS` extension is supported.
+- DNSBL/RBL checks are supported
 - Delayed welcome: The 220 welcome message is sent with a short delay.
   If the client speaks before its turn, it is tarpitted. This catches
   a surprising amount of spammers.

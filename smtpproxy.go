@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jorgenschaefer/smtpproxy/dnsbl"
 	"github.com/jorgenschaefer/smtpproxy/errors"
 	"github.com/jorgenschaefer/smtpproxy/smtpd"
 )
@@ -286,6 +287,10 @@ func handleDATA(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
 	if overrideRecipient != "" {
 		recipients = []string{overrideRecipient}
 	}
+	if reason := DNSBL(c.String()); reason != "" {
+		cmd.ErrArgs["dnsbl"] = reason
+		return errors.Error("DNSBL check positive", cmd.ErrArgs)
+	}
 	err = smtp.SendMail(
 		relayHost,
 		nil,
@@ -300,8 +305,12 @@ func handleDATA(c *smtpd.Conn, srv *connState, cmd *commandArgs) error {
 		c.Reply(450, "Error delivering the mail, try again later")
 		return nil
 	}
-	fmt.Printf("Mail sent; client=\"%s\" sender=\"%s\" recipients=\"%s\"\n",
-		c, srv.Sender, strings.Join(srv.Recipients, ", "))
+	protocol := "SMTP"
+	if c.IsTLS() {
+		protocol = "STARTTLS"
+	}
+	fmt.Printf("Mail sent; client=\"%s\" recipients=\"%s\" sender=\"%s\" protocol=\"%s\"\n",
+		c, srv.Sender, strings.Join(srv.Recipients, ", "), protocol)
 	c.Reply(250, "Ok")
 	return nil
 }
@@ -354,6 +363,31 @@ func LoadTLSConfig() (*tls.Config, error) {
 		Certificates: []tls.Certificate{cert},
 	}
 	return config, nil
+}
+
+func DNSBL(ipaddress string) string {
+	domainstring := os.Getenv("DNSBL_DOMAINS")
+	if domainstring == "" {
+		return ""
+	}
+	dnsblList := strings.Split(domainstring, " ")
+	for i := range dnsblList {
+		dnsblList[i] = strings.Trim(dnsblList[i], ", ")
+	}
+
+	host, _, err := net.SplitHostPort(ipaddress)
+	if err != nil {
+		fmt.Printf("[dnsbl] Error in net.SplitHostString(\"%s\"): %v",
+			ipaddress, err)
+		return ""
+	}
+
+	reason, err := dnsbl.Lookup(host, dnsblList)
+	if err != nil {
+		fmt.Println("[dnsbl] Error in dnsbl.Lookup(%v):", host, err)
+		return ""
+	}
+	return reason
 }
 
 var mailFrom = regexp.MustCompile("(?i)from:<(.+)>")

@@ -17,3 +17,7 @@ SERVER_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
 
 # Which address to listen on. Defaults to :25
 LISTEN_ADDRESS=":25"
+
+# Which DNSBL services to query. This is a space-separated list of
+# domains.
+DNSBL_DOMAINS="zen.spamhaus.org bl.spamcop.net"
