@@ -4,9 +4,10 @@ import "testing"
 
 func TestExtractSender(t *testing.T) {
 	var goodCases = map[string]string{
-		"from:<foo@bar.com>": "foo@bar.com",
-		"FROM:<foo@bar.com>": "foo@bar.com",
-		"FrOm:<foo@bar.com>": "foo@bar.com",
+		"from:<foo@bar.com>":          "foo@bar.com",
+		"FROM:<foo@bar.com>":          "foo@bar.com",
+		"FrOm:<foo@bar.com>":          "foo@bar.com",
+		"from:<foo@bar.com> 8BITMIME": "foo@bar.com",
 	}
 	for k, v := range goodCases {
 		sender, err := extractSender(k)
