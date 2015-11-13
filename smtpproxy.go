@@ -40,6 +40,7 @@ var commandMap map[string]handlerFunction = map[string]handlerFunction{
 type connState struct {
 	Client       *smtpd.Conn
 	Hostname     string
+	Protocol     string
 	Sender       string
 	Recipients   []string
 	QuitReceived bool
@@ -136,6 +137,7 @@ func handleConnection(netConn net.Conn) {
 	srv := &connState{
 		Hostname: hostname,
 		Client:   c,
+		Protocol: "SMTP",
 	}
 
 	err = handleNewClient(c, srv)
@@ -204,12 +206,16 @@ func handleEHLO(c *smtpd.Conn, srv *connState) error {
 	} else {
 		c.Reply(250, srv.Hostname, "8BITMIME", "STARTTLS")
 	}
+	if srv.Protocol == "SMTP" {
+		srv.Protocol = "ESMTP"
+	}
 	return nil
 }
 
 func handleSTARTTLS(c *smtpd.Conn, srv *connState) error {
 	c.Reply(220, "Ready to start TLS")
 	c.StartTLS(tlsConfig)
+	srv.Protocol = "ESMTPS"
 	return nil
 }
 
@@ -287,12 +293,8 @@ func handleDATA(c *smtpd.Conn, srv *connState) error {
 		c.Reply(450, "Error delivering the mail, try again later")
 		return nil
 	}
-	protocol := "SMTP"
-	if c.IsTLS() {
-		protocol = "STARTTLS"
-	}
 	fmt.Printf("Mail sent; client=\"%s\" recipients=\"%s\" sender=\"%s\" protocol=\"%s\"\n",
-		c, srv.Sender, strings.Join(srv.Recipients, ", "), protocol)
+		c, srv.Sender, strings.Join(srv.Recipients, ", "), srv.Protocol)
 	c.Reply(250, "Ok")
 	return nil
 }
@@ -357,10 +359,8 @@ func (srv *connState) Error(message string) errors.CommandError {
 	if len(srv.Recipients) > 0 {
 		args["recipients"] = strings.Join(srv.Recipients, ", ")
 	}
-	if srv.Client.IsTLS() {
-		args["protocol"] = "STARTTLS"
-	} else {
-		args["protocol"] = "SMTP"
+	if srv.Protocol != "" {
+		args["protocol"] = srv.Protocol
 	}
 	if srv.Command != "" {
 		args["command"] = srv.Command
