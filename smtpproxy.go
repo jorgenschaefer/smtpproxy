@@ -294,7 +294,7 @@ func handleDATA(c *smtpd.Conn, srv *connState) error {
 		return nil
 	}
 	fmt.Printf("Mail sent; client=\"%s\" recipients=\"%s\" sender=\"%s\" protocol=\"%s\"\n",
-		c, srv.Sender, strings.Join(srv.Recipients, ", "), srv.Protocol)
+		c, strings.Join(srv.Recipients, ", "), srv.Sender, srv.Protocol)
 	c.Reply(250, "Ok")
 	return nil
 }
