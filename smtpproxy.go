@@ -190,6 +190,7 @@ func handleNewClient(c *smtpd.Conn, srv *connState) error {
 	}
 	err = c.WriteLine("220 Thank you for holding, how may I help you?")
 	if err != nil {
+		srv.Err = err
 		return srv.Error("writing server greeting")
 	}
 	return nil
