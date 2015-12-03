@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"os"
 	"regexp"
 	"strconv"
@@ -291,7 +292,11 @@ func handleDATA(c *smtpd.Conn, srv *connState) error {
 		fmt.Printf("Error delivering mail; client=\"%s\" sender=\"%s\" recipients=\"%s\" error=\"%s\"\n",
 			c, srv.Sender, strings.Join(srv.Recipients, ", "),
 			err)
-		c.Reply(450, "Error delivering the mail, try again later")
+		if protoErr, ok := err.(*textproto.Error); ok {
+			c.Reply(protoErr.Code, "Error delivering the mail")
+		} else {
+			c.Reply(450, "Error delivering the mail, try again later")
+		}
 		return nil
 	}
 	fmt.Printf("Mail sent; client=\"%s\" recipients=\"%s\" sender=\"%s\" protocol=\"%s\"\n",
