@@ -156,6 +156,7 @@ func handleConnection(netConn net.Conn) {
 				c, err)
 			return
 		}
+		command = strings.ToUpper(command)
 		srv.Command = command
 		srv.Args = args
 		handler, ok := commandMap[command]
