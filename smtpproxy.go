@@ -161,7 +161,7 @@ func handleConnection(netConn net.Conn) {
 		srv.Args = args
 		handler, ok := commandMap[command]
 		if !ok {
-			fmt.Println(srv.Error("unknown command"))
+			fmt.Println("Error:", srv.Error("unknown command"))
 			flyTrap(c)
 			return
 		}
