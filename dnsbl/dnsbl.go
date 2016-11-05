@@ -16,7 +16,7 @@ func Domain(ipaddress, dnsbl string) (string, error) {
 			reversed[i] = fmt.Sprintf("%d", val)
 		}
 		prefix := strings.Join(reversed, ".")
-		return fmt.Sprintf("%s.%s", prefix, dnsbl), nil
+		return domainAppend(prefix, dnsbl), nil
 	} else if ip := parsed.To16(); ip != nil {
 		reversed := make([]string, net.IPv6len*2)
 		for i := 0; i < len(ip); i++ {
@@ -25,7 +25,7 @@ func Domain(ipaddress, dnsbl string) (string, error) {
 			reversed[2*i+1] = fmt.Sprintf("%x", val>>4)
 		}
 		prefix := strings.Join(reversed, ".")
-		return fmt.Sprintf("%s.%s", prefix, dnsbl), nil
+		return domainAppend(prefix, dnsbl), nil
 	} else {
 		return "", fmt.Errorf("Invalid IP address: %v", ip)
 	}
@@ -45,4 +45,12 @@ func Lookup(ipaddress string, dnsblList []string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+func domainAppend(parts ...string) string {
+	combined := strings.Join(parts, ".")
+	if !strings.HasSuffix(combined, ".") {
+		combined += "."
+	}
+	return combined
 }
