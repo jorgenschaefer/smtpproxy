@@ -6,11 +6,12 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 var validRecipients *regexp.Regexp
 
-func init() {
+func Check() {
 	if RelayHost() == "" {
 		fmt.Fprintf(os.Stderr, "No RELAY_HOST given\n")
 		os.Exit(1)
@@ -49,6 +50,10 @@ func init() {
 			os.Exit(1)
 		}
 	}
+}
+
+func DNSBL() []string {
+	return strings.Split(os.Getenv("DNSBL_DOMAINS"), " ")
 }
 
 func ValidRecipient() *regexp.Regexp {

@@ -12,6 +12,7 @@ import (
 )
 
 func main() {
+	config.Check()
 	ln, err := listen()
 	if err != nil {
 		fmt.Println(err)

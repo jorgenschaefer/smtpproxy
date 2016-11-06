@@ -15,7 +15,7 @@ type Connection interface {
 	Reply(code int, messages ...string) error
 	StartTLS(*tls.Config)
 	ReadCommand(timeout int) (command, args string, err error)
-	ReadDotBytes() ([]byte, error)
+	ReadDotBytes(timeout int) ([]byte, error)
 	Close() error
 	RemoteAddr() net.Addr
 	Tarpit() (int, time.Duration, error)
@@ -70,8 +70,8 @@ func (c *NetConnection) ReadCommand(timeout int) (command, args string, err erro
 	}
 }
 
-func (c *NetConnection) ReadDotBytes() ([]byte, error) {
-	c.conn.SetReadDeadline(time.Time{})
+func (c *NetConnection) ReadDotBytes(timeout int) ([]byte, error) {
+	c.conn.SetReadDeadline(time.Now().Add(time.Duration(timeout) * time.Second))
 	return c.reader.ReadDotBytes()
 }
 
