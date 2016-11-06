@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"fmt"
+	"net"
 	"net/smtp"
 	"net/textproto"
 	"os"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/jorgenschaefer/smtpproxy/argerror"
 	"github.com/jorgenschaefer/smtpproxy/config"
+	"github.com/jorgenschaefer/smtpproxy/dnsbl"
 	"github.com/jorgenschaefer/smtpproxy/smtpd"
 )
 
@@ -17,18 +20,32 @@ type State struct {
 	sender     string
 	recipients []string
 	args       map[string]string
+	blacklist  *dnsbl.DNSBL
 }
 
 func Greet(conn smtpd.Connection) (*State, error) {
-	s := &State{conn: conn, args: map[string]string{}}
+	s := &State{
+		conn:      conn,
+		args:      map[string]string{},
+		blacklist: dnsbl.New(config.DNSBL(), net.LookupHost),
+	}
 	s.args["client"] = s.conn.RemoteAddr().String()
 	if err := conn.Printf("220-%s here, please hold.\r\n", hostname()); err != nil {
 		return nil, s.Error("Error writing server greeting")
 	}
-	if _, _, err := conn.ReadCommand(5); err == nil {
-		// FIXME: This will miss a non-timeout error
+	command, args, err := conn.ReadCommand(5)
+	if err == nil {
+		s.args["command"] = command
+		if args != "" {
+			s.args["command"] += " " + args
+		}
 		return nil, s.TarpitError("Error: Client spoke before its turn")
 	}
+	if neterr, ok := err.(net.Error); !ok || !neterr.Timeout() {
+		s.args["error"] = err.Error()
+		return nil, s.Error("Error during greeting")
+	}
+
 	if err := conn.Reply(220, "Thank you for holding, how can I help you?"); err != nil {
 		s.args["error"] = err.Error()
 		return nil, s.Error("Error writing server greeting continuation")
@@ -44,9 +61,7 @@ func (s *State) HandleCommand() error {
 	}
 	s.args["command"] = command
 	if args != "" {
-		s.args["args"] = args
-	} else {
-		delete(s.args, "args")
+		s.args["command"] += " " + args
 	}
 	switch strings.ToUpper(command) {
 	case "HELO":
@@ -156,7 +171,7 @@ func (s *State) HandleData() error {
 		return s.TarpitError("Error: DATA without RCPT")
 	}
 	s.conn.Reply(354, "End data with <CRLF>.<CRLF>")
-	body, err := s.conn.ReadDotBytes()
+	body, err := s.conn.ReadDotBytes(5 * 60)
 	if err != nil {
 		s.conn.Reply(501, "You confuse me")
 		s.args["error"] = err.Error()
@@ -166,7 +181,10 @@ func (s *State) HandleData() error {
 	if override, ok := config.OverrideRecipient(); ok {
 		recipients = []string{override}
 	}
-	// FIXME: DNSBL check
+	if msg, ok := s.blacklist.Check(s.conn.RemoteAddr()); ok {
+		s.args["dnsbl"] = msg
+		return s.TarpitError("Error: DNSBL check positive")
+	}
 	if err := smtp.SendMail(config.RelayHost(), nil, s.sender, recipients, body); err != nil {
 		s.args["error"] = err.Error()
 		if protoErr, ok := err.(*textproto.Error); ok {
@@ -177,6 +195,8 @@ func (s *State) HandleData() error {
 			return s.Error("Error delivering mail")
 		}
 	}
+	fmt.Println(s.Error("Mail sent"))
+	s.conn.Reply(250, "Ok")
 	s.Reset()
 	return nil
 }

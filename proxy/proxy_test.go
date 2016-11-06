@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import "testing"
 
@@ -10,14 +10,13 @@ func TestExtractSender(t *testing.T) {
 		"from:<foo@bar.com> 8BITMIME": "foo@bar.com",
 	}
 	for k, v := range goodCases {
-		sender, err := extractSender(k)
-		if err != nil {
-			t.Error("When parsing", k, "expected success, got",
-				err)
+		sender, ok := extractSender(k)
+		if !ok {
+			t.Errorf("Failed parsing %#v", k)
 		}
 		if sender != v {
-			t.Error("When parsing", k, "expected", v,
-				", got", sender)
+			t.Errorf("Parsed %#v as %#v, expected %#v",
+				k, sender, v)
 		}
 	}
 
@@ -25,8 +24,8 @@ func TestExtractSender(t *testing.T) {
 		"from:",
 	}
 	for _, v := range badCases {
-		sender, err := extractSender(v)
-		if err == nil {
+		sender, ok := extractSender(v)
+		if ok {
 			t.Error("Expected failure, got ", sender)
 		}
 	}
@@ -39,14 +38,13 @@ func TestExtractRecipient(t *testing.T) {
 		"To:<foo@bar.com>": "foo@bar.com",
 	}
 	for k, v := range goodCases {
-		sender, err := extractRecipient(k)
-		if err != nil {
-			t.Error("When parsing", k, "expected success, got",
-				err)
+		sender, ok := extractRecipient(k)
+		if !ok {
+			t.Errorf("Failed parsing %#v", sender)
 		}
 		if sender != v {
-			t.Error("When parsing", k, "expected", v,
-				", got", sender)
+			t.Errorf("Parsed %#v as %#v, expected %#v",
+				k, sender, v)
 		}
 	}
 
@@ -54,9 +52,9 @@ func TestExtractRecipient(t *testing.T) {
 		"to:",
 	}
 	for _, v := range badCases {
-		sender, err := extractRecipient(v)
-		if err == nil {
-			t.Error("Expected failure, got ", sender)
+		sender, ok := extractRecipient(v)
+		if ok {
+			t.Errorf("Expected failure, got %#v", sender)
 		}
 	}
 }
