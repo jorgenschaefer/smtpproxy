@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 type ArgError struct {
@@ -33,7 +34,7 @@ func (e ArgError) Error() string {
 		buffer.Write([]byte(";"))
 	}
 	for _, key := range keys {
-		fmt.Fprintf(&buffer, " %s=\"%s\"", key, e.args[key])
+		fmt.Fprintf(&buffer, " %s=\"%s\"", key, strings.Replace(e.args[key], "\n", " ", -1))
 	}
 	return buffer.String()
 }
