@@ -31,6 +31,7 @@ func Greet(conn smtpd.Connection) (*State, error) {
 	}
 	s.args["client"] = s.conn.RemoteAddr().String()
 	if err := conn.Printf("220-%s here, please hold.\r\n", hostname()); err != nil {
+		s.args["error"] = err.Error()
 		return nil, s.Error("Error writing server greeting")
 	}
 	command, args, err := conn.ReadCommand(5)
