@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
+	"io"
+	"math"
 	"net"
 	"net/textproto"
 	"strings"
@@ -24,12 +26,15 @@ type Connection interface {
 type NetConnection struct {
 	conn   net.Conn
 	reader *textproto.Reader
+	lr     *io.LimitedReader
 }
 
 func NewConnection(conn net.Conn) Connection {
+	lr := &io.LimitedReader{R: conn, N: math.MaxInt64}
 	return &NetConnection{
 		conn:   conn,
-		reader: textproto.NewReader(bufio.NewReader(conn)),
+		lr:     lr,
+		reader: textproto.NewReader(bufio.NewReader(lr)),
 	}
 }
 
@@ -58,6 +63,11 @@ func (c *NetConnection) StartTLS(cfg *tls.Config) {
 
 func (c *NetConnection) ReadCommand(timeout int) (command, args string, err error) {
 	c.conn.SetReadDeadline(time.Now().Add(time.Duration(timeout) * time.Second))
+	// The maximum length for a command line according to RFC
+	// 5321, section 4.5.3.1.4., is 512 bytes. The maximum length
+	// of a text line (section 4.5.3.1.6.) is 1000, though, so
+	// let's use that.
+	c.lr.N = 1000
 	line, err := c.reader.ReadLine()
 	if err != nil {
 		return "", "", err
@@ -72,6 +82,8 @@ func (c *NetConnection) ReadCommand(timeout int) (command, args string, err erro
 
 func (c *NetConnection) ReadDotBytes(timeout int) ([]byte, error) {
 	c.conn.SetReadDeadline(time.Now().Add(time.Duration(timeout) * time.Second))
+	// 150MB is the current gmail maximum
+	c.lr.N = 150 * 1024 * 1024
 	return c.reader.ReadDotBytes()
 }
 

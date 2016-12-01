@@ -70,6 +70,22 @@ func TestReadCommand(t *testing.T) {
 	if err != io.EOF {
 		t.Errorf("Expected an EOF error, but got %#v", err)
 	}
+
+	// Supports limited reader
+	netconn.Reset()
+	netconn.WriteString("HELO ")
+	for i := 0; i < 1024; i++ {
+		netconn.WriteString("a")
+	}
+	netconn.WriteString("\r\n")
+	command, args, err = c.ReadCommand(23)
+	if err != nil {
+		t.Errorf("Expected no error, but got %#v", err)
+	}
+	expectStringEqual(t, command, "HELO")
+	if len(args) != 995 {
+		t.Errorf("Expected %d bytes, got %d", 995, len(args))
+	}
 }
 
 func TestReadDotBytes(t *testing.T) {
